@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Edit, Trash2, CheckCircle, XCircle, Plus, Loader2 } from 'lucide-react';
+import { Edit, Trash2, CheckCircle, XCircle, Plus, Loader2, Download, RefreshCw } from 'lucide-react';
 import type { Project } from '../types/project';
 import { supabase } from '../services/supabase';
+import { useCrawler } from '../contexts/CrawlerContext';
+import { baiduCrawler } from '../services/baiduCrawler';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -26,6 +28,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const Projects: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -39,6 +47,7 @@ const Projects: React.FC = () => {
     github_url: '',
     demo_url: ''
   });
+  const { progress, startCrawl, updateProgress } = useCrawler();
 
   useEffect(() => {
     fetchProjects();
@@ -143,6 +152,31 @@ const Projects: React.FC = () => {
     }
   };
 
+  const handleBaiduCrawl = async () => {
+    startCrawl();
+    
+    try {
+      await baiduCrawler.crawlBaiduProjects((progressData) => {
+        updateProgress(progressData);
+      });
+      await fetchProjects(); // Refresh the list after crawling
+    } catch (error) {
+      console.error('Error during Baidu crawl:', error);
+      updateProgress({
+        error: error instanceof Error ? error.message : 'Unknown error',
+        isRunning: false,
+      });
+    }
+  };
+
+  const handleCrawlTest = async () => {
+    try {
+      await baiduCrawler.testCrawl();
+    } catch (error) {
+      console.error('Error during test crawl:', error);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -170,11 +204,65 @@ const Projects: React.FC = () => {
           <h1 className="text-3xl font-bold tracking-tight">Projects</h1>
           <p className="text-muted-foreground">Manage and review submitted projects</p>
         </div>
-        <Button onClick={() => setShowAddModal(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Project
-        </Button>
+        <div className="flex space-x-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" disabled={progress.isRunning}>
+                {progress.isRunning ? 'Crawling...' : 'Crawl from Source'}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={handleBaiduCrawl} disabled={progress.isRunning}>
+                <Download className="mr-2 h-4 w-4" />
+                Baidu Source
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleCrawlTest} disabled={progress.isRunning}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Test Baidu Crawl
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button onClick={() => setShowAddModal(true)} disabled={progress.isRunning}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Project
+          </Button>
+        </div>
       </div>
+
+      {progress.isRunning && (
+        <Alert>
+          <AlertTitle>Crawler Progress</AlertTitle>
+          <AlertDescription className="mt-2">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span>{progress.message}</span>
+                <span>Page {progress.currentPage} of {progress.totalPages}</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  style={{ 
+                    width: `${Math.min((progress.currentPage / progress.totalPages) * 100, 100)}%` 
+                  }}
+                />
+              </div>
+              <div className="text-sm text-gray-600">
+                Imported: {progress.totalImported} projects
+                {progress.currentPageProjects > 0 && (
+                  <span className="ml-2">(Current page: {progress.currentPageProjects} projects)</span>
+                )}
+              </div>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {progress.error && (
+        <Alert variant="destructive">
+          <AlertTitle>Crawler Error</AlertTitle>
+          <AlertDescription>{progress.error}</AlertDescription>
+        </Alert>
+      )}
 
       <Card>
         <CardHeader>
